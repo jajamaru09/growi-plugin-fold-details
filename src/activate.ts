@@ -54,13 +54,21 @@ async function extractWithRetries(view: EditorViewLike, maxAttempts = 5): Promis
  * Set the open state of the nth <details> element in the preview pane.
  */
 function setPreviewDetailsOpen(index: number, isOpen: boolean): void {
-  const preview = document.querySelector('.page-editor-preview-body, .wiki');
-  if (!preview) return;
-  const allDetails = preview.querySelectorAll('details');
-  const target = allDetails[index];
-  if (target) {
-    target.open = isOpen;
+  console.log(LOG_PREFIX, `setPreviewDetailsOpen: index=${index}, isOpen=${isOpen}`);
+  // Try multiple selectors — edit mode preview uses different containers
+  const candidates = document.querySelectorAll('.page-editor-preview-body, .wiki');
+  console.log(LOG_PREFIX, `Found ${candidates.length} preview containers`);
+  for (const preview of candidates) {
+    const allDetails = preview.querySelectorAll('details');
+    if (allDetails.length === 0) continue;
+    console.log(LOG_PREFIX, `Container has ${allDetails.length} <details>, setting [${index}].open = ${isOpen}`);
+    const target = allDetails[index];
+    if (target) {
+      target.open = isOpen;
+      return;
+    }
   }
+  console.warn(LOG_PREFIX, `No <details>[${index}] found in any preview container`);
 }
 
 /**
