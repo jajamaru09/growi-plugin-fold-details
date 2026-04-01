@@ -136,6 +136,8 @@ export function createDetailsFoldExtension(
 
 /**
  * Map a {from, to} range through document changes.
+ * Returning undefined signals to CM6 that the effect should be dropped
+ * (this is the documented contract for StateEffect map functions).
  */
 function mapRange(value: { from: number; to: number }, changes: any): { from: number; to: number } | undefined {
   const from = changes.mapPos(value.from, 1);
@@ -205,7 +207,7 @@ export function findDetailsRanges(
     const text = line.text.trimStart();
 
     if (/<details(\s[^>]*)?>/.test(text)) {
-      const hasOpen = /open/.test(text);
+      const hasOpen = /\bopen\b/.test(text);
       let depth = 1;
       for (let j = i + 1; j <= doc.lines; j++) {
         const scanLine = doc.line(j);

@@ -41,7 +41,7 @@ async function extractWithRetries(view: EditorViewLike, maxAttempts = 5): Promis
       return extractCM6Modules(view);
     } catch (e) {
       if (attempt === maxAttempts) throw e;
-      console.log(LOG_PREFIX, `Extraction attempt ${attempt}/${maxAttempts} failed, retrying...`);
+      console.debug(LOG_PREFIX, `Extraction attempt ${attempt}/${maxAttempts} failed, retrying...`);
       await sleep(500 * attempt);
       const freshView = getEditorView();
       if (freshView) view = freshView;
@@ -50,12 +50,8 @@ async function extractWithRetries(view: EditorViewLike, maxAttempts = 5): Promis
   throw new Error('unreachable');
 }
 
-/**
- * Set the open state of the nth <details> element in the preview pane.
- */
 function getEditorPreviewContainer(): Element | null {
   // CSS Modules generates hashed class names like "Preview_page-editor-preview-body__3Poyo"
-  // Use partial match selector to find it reliably
   return document.querySelector('[class*="page-editor-preview-body"]');
 }
 
@@ -85,7 +81,7 @@ function foldInitialClosedDetails(
     view.dispatch({
       effects: toFold.map((r) => effects.fold.of({ from: r.from, to: r.to })),
     });
-    console.log(LOG_PREFIX, `Folded ${toFold.length} initially-closed <details> blocks`);
+    console.debug(LOG_PREFIX, `Folded ${toFold.length} initially-closed <details> blocks`);
   }
 }
 
@@ -97,6 +93,13 @@ async function setupEditor(): Promise<void> {
     view = await waitForEditorView(5000);
   } catch (e) {
     console.warn(LOG_PREFIX, 'Editor not found:', e);
+    return;
+  }
+
+  // Guard: check if fold extension is already injected (e.g. editor instance reused)
+  // by checking for our DOM marker
+  if (view.dom.dataset?.foldDetailsInjected === 'true') {
+    editorSetupActive = true;
     return;
   }
 
@@ -118,32 +121,29 @@ async function setupEditor(): Promise<void> {
 
   injectExtension(view, cm6, extension);
 
-  // Fold initially-closed <details> blocks
-  // Slight delay to ensure the fold extension is ready
-  await sleep(100);
-  const currentView = getEditorView();
-  if (currentView) {
-    foldInitialClosedDetails(currentView, effects);
-  }
+  // Mark the editor DOM to prevent double-injection
+  (view.dom as HTMLElement).dataset.foldDetailsInjected = 'true';
+
+  // Fold initially-closed <details> blocks immediately after injection
+  // (appendConfig is applied synchronously, so the fold state field is ready)
+  const currentView = getEditorView() ?? view;
+  foldInitialClosedDetails(currentView, effects);
 
   // Set up sync controller (preview → editor)
-  const syncController = new FoldSyncController(
-    currentView ?? view,
-    effects,
-    foldState,
-  );
+  const syncController = new FoldSyncController(effects, foldState);
 
   // Observe preview toggles → sync to editor
   const removeToggleObserver = observePreviewDetailsToggle((index, isOpen) => {
-    const v = getEditorView();
-    if (v) {
-      syncController.onPreviewToggle(index, isOpen);
+    // Always re-acquire view to avoid stale references
+    const freshView = getEditorView();
+    if (freshView) {
+      syncController.onPreviewToggle(freshView, index, isOpen);
     }
   });
   cleanups.push(removeToggleObserver);
 
   editorSetupActive = true;
-  console.log(LOG_PREFIX, 'Editor fold extension activated');
+  console.debug(LOG_PREFIX, 'Editor fold extension activated');
 }
 
 function isEditMode(): boolean {
@@ -159,7 +159,7 @@ function onHashChange(): void {
 }
 
 export function activate(): void {
-  console.log(LOG_PREFIX, 'Plugin activated');
+  console.debug(LOG_PREFIX, 'Plugin activated');
 
   window.addEventListener('hashchange', onHashChange);
   cleanups.push(() => window.removeEventListener('hashchange', onHashChange));
@@ -171,5 +171,5 @@ export function activate(): void {
 
 export function deactivate(): void {
   cleanup();
-  console.log(LOG_PREFIX, 'Plugin deactivated');
+  console.debug(LOG_PREFIX, 'Plugin deactivated');
 }
