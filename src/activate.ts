@@ -51,8 +51,7 @@ async function setupEditor(): Promise<void> {
 
   // Create and inject fold extension
   const { extension, effects, foldState } = createDetailsFoldExtension(cm6);
-  const removeExtension = injectExtension(view, cm6, extension);
-  cleanups.push(removeExtension);
+  injectExtension(view, cm6, extension);
 
   // Set up sync controller
   const syncController = new FoldSyncController(view, effects, foldState);
