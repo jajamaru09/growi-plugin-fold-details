@@ -20,8 +20,9 @@ export function observePreviewDetailsToggle(callback: DetailsToggleCallback): ()
     const target = event.target;
     if (!(target instanceof HTMLDetailsElement)) return;
 
-    // Only care about <details> inside the preview pane
-    const preview = target.closest('.page-editor-preview-body, .wiki');
+    // Only care about <details> inside the editor preview pane
+    // CSS Modules generates hashed class names, so use partial match
+    const preview = target.closest('[class*="page-editor-preview-body"]');
     if (!preview) return;
 
     // Determine the 0-based index of this <details> among siblings in the preview

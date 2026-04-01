@@ -53,23 +53,20 @@ async function extractWithRetries(view: EditorViewLike, maxAttempts = 5): Promis
 /**
  * Set the open state of the nth <details> element in the preview pane.
  */
-function setPreviewDetailsOpen(index: number, isOpen: boolean): void {
-  const editorPreview = document.querySelector('.page-editor-preview-body');
-  const wikiPreview = document.querySelector('.wiki');
-  console.log(LOG_PREFIX, `reverse-sync: index=${index}, isOpen=${isOpen}`);
-  console.log(LOG_PREFIX, `  .page-editor-preview-body:`, editorPreview ? 'found' : 'NOT FOUND');
-  console.log(LOG_PREFIX, `  .wiki:`, wikiPreview ? 'found' : 'NOT FOUND');
+function getEditorPreviewContainer(): Element | null {
+  // CSS Modules generates hashed class names like "Preview_page-editor-preview-body__3Poyo"
+  // Use partial match selector to find it reliably
+  return document.querySelector('[class*="page-editor-preview-body"]');
+}
 
-  // Try all possible preview containers
-  const containers = [editorPreview, wikiPreview].filter(Boolean) as Element[];
-  for (const preview of containers) {
-    const allDetails = preview.querySelectorAll('details');
-    console.log(LOG_PREFIX, `  container ${preview.className}: ${allDetails.length} <details>`);
-    const target = allDetails[index];
-    if (target instanceof HTMLDetailsElement) {
-      console.log(LOG_PREFIX, `  setting open=${isOpen} on container: ${preview.className}`);
-      target.open = isOpen;
-    }
+function setPreviewDetailsOpen(index: number, isOpen: boolean): void {
+  const preview = getEditorPreviewContainer();
+  if (!preview) return;
+
+  const allDetails = preview.querySelectorAll('details');
+  const target = allDetails[index];
+  if (target instanceof HTMLDetailsElement) {
+    target.open = isOpen;
   }
 }
 
