@@ -4,14 +4,15 @@
  * Lifecycle:
  *   activate() called once by GROWI on page load
  *     → listen for hashchange (edit mode detection)
- *       → on #edit: wait for CM6 DOM → extract CM6 modules (with retries) → inject fold extension → observe preview
- *       → on leave edit: cleanup all injected extensions and observers
+ *       → on #edit: wait for CM6 DOM → extract CM6 modules (with retries)
+ *         → inject fold extension → fold initially-closed <details> → observe preview
+ *       → on leave edit: cleanup all observers
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { extractCM6Modules, type CM6Modules } from './editor/cm6-modules';
-import { createDetailsFoldExtension } from './editor/details-fold-extension';
+import { createDetailsFoldExtension, findDetailsRanges } from './editor/details-fold-extension';
 import { getEditorView, waitForEditorView, type EditorViewLike } from './editor/get-editor-view';
 import { injectExtension } from './editor/inject-extension';
 import { observePreviewDetailsToggle } from './preview/details-toggle-observer';
@@ -34,11 +35,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Try to extract CM6 modules with retries.
- * The editor may not have decorations immediately after mounting,
- * so we retry a few times with increasing delays.
- */
 async function extractWithRetries(view: EditorViewLike, maxAttempts = 5): Promise<CM6Modules> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -47,12 +43,43 @@ async function extractWithRetries(view: EditorViewLike, maxAttempts = 5): Promis
       if (attempt === maxAttempts) throw e;
       console.log(LOG_PREFIX, `Extraction attempt ${attempt}/${maxAttempts} failed, retrying...`);
       await sleep(500 * attempt);
-      // Re-acquire view in case it changed
       const freshView = getEditorView();
       if (freshView) view = freshView;
     }
   }
   throw new Error('unreachable');
+}
+
+/**
+ * Set the open state of the nth <details> element in the preview pane.
+ */
+function setPreviewDetailsOpen(index: number, isOpen: boolean): void {
+  const preview = document.querySelector('.page-editor-preview-body, .wiki');
+  if (!preview) return;
+  const allDetails = preview.querySelectorAll('details');
+  const target = allDetails[index];
+  if (target) {
+    target.open = isOpen;
+  }
+}
+
+/**
+ * Fold all <details> blocks that don't have the `open` attribute.
+ * This syncs the initial editor state with the preview state.
+ */
+function foldInitialClosedDetails(
+  view: EditorViewLike,
+  effects: { fold: any },
+): void {
+  const ranges = findDetailsRanges(view);
+  const toFold = ranges.filter((r) => !r.hasOpen);
+
+  if (toFold.length > 0) {
+    view.dispatch({
+      effects: toFold.map((r) => effects.fold.of({ from: r.from, to: r.to })),
+    });
+    console.log(LOG_PREFIX, `Folded ${toFold.length} initially-closed <details> blocks`);
+  }
 }
 
 async function setupEditor(): Promise<void> {
@@ -74,18 +101,35 @@ async function setupEditor(): Promise<void> {
     return;
   }
 
-  // Create and inject fold extension
-  const { extension, effects, foldState } = createDetailsFoldExtension(cm6);
+  // Create fold extension with reverse-sync callback (editor → preview)
+  const { extension, effects, foldState } = createDetailsFoldExtension(
+    cm6,
+    (index, isOpen) => {
+      setPreviewDetailsOpen(index, isOpen);
+    },
+  );
+
   injectExtension(view, cm6, extension);
 
-  // Set up sync controller
-  const syncController = new FoldSyncController(view, effects, foldState);
+  // Fold initially-closed <details> blocks
+  // Slight delay to ensure the fold extension is ready
+  await sleep(100);
+  const currentView = getEditorView();
+  if (currentView) {
+    foldInitialClosedDetails(currentView, effects);
+  }
+
+  // Set up sync controller (preview → editor)
+  const syncController = new FoldSyncController(
+    currentView ?? view,
+    effects,
+    foldState,
+  );
 
   // Observe preview toggles → sync to editor
   const removeToggleObserver = observePreviewDetailsToggle((index, isOpen) => {
-    // Re-acquire view in case DOM changed
-    const currentView = getEditorView();
-    if (currentView) {
+    const v = getEditorView();
+    if (v) {
       syncController.onPreviewToggle(index, isOpen);
     }
   });
@@ -113,7 +157,6 @@ export function activate(): void {
   window.addEventListener('hashchange', onHashChange);
   cleanups.push(() => window.removeEventListener('hashchange', onHashChange));
 
-  // If already in edit mode, set up immediately
   if (isEditMode()) {
     setupEditor();
   }

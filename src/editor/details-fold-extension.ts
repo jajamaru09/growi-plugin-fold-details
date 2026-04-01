@@ -22,11 +22,20 @@ export interface DetailsFoldExtension {
   foldState: any; // StateField reference for reading fold state
 }
 
+/** Callback when a fold is toggled from the editor (e.g. clicking placeholder) */
+export type EditorFoldToggleCallback = (index: number, isOpen: boolean) => void;
+
 /**
  * Create the complete fold extension for <details> blocks.
  * Returns the extension to inject and the effect types for programmatic control.
+ *
+ * @param onEditorFoldToggle Called when a fold is toggled FROM the editor side
+ *        (clicking the placeholder). Used for reverse-sync to preview.
  */
-export function createDetailsFoldExtension(cm6: CM6Modules): DetailsFoldExtension {
+export function createDetailsFoldExtension(
+  cm6: CM6Modules,
+  onEditorFoldToggle?: EditorFoldToggleCallback,
+): DetailsFoldExtension {
   // Define fold/unfold effects
   const foldEffect = cm6.StateEffect.define({ map: mapRange });
   const unfoldEffect = cm6.StateEffect.define({ map: mapRange });
@@ -44,7 +53,6 @@ export function createDetailsFoldExtension(cm6: CM6Modules): DetailsFoldExtensio
       for (const effect of tr.effects) {
         if (effect.is(foldEffect)) {
           const { from, to } = effect.value;
-          // Create a replace decoration that hides the folded content
           const deco = cm6.Decoration.replace({
             widget: new FoldWidget(),
             block: false,
@@ -54,7 +62,6 @@ export function createDetailsFoldExtension(cm6: CM6Modules): DetailsFoldExtensio
           });
         } else if (effect.is(unfoldEffect)) {
           const { from, to } = effect.value;
-          // Remove decorations that overlap with the unfolded range
           folded = folded.update({
             filter: (decoFrom: number, decoTo: number) => {
               return decoFrom !== from || decoTo !== to;
@@ -70,12 +77,11 @@ export function createDetailsFoldExtension(cm6: CM6Modules): DetailsFoldExtensio
     },
   });
 
-  // Gutter marker or click handler to toggle folds
+  // Click handler: clicking placeholder unfolds and syncs to preview
   const foldClickHandler = cm6.EditorView.domEventHandlers({
     click(event: MouseEvent, view: any) {
       const target = event.target as HTMLElement;
       if (target.classList.contains('cm-details-fold-placeholder')) {
-        // Find the fold range from the decoration
         const pos = view.posAtDOM(target);
         const folded = view.state.field(foldState);
         let foldRange: { from: number; to: number } | null = null;
@@ -86,6 +92,17 @@ export function createDetailsFoldExtension(cm6: CM6Modules): DetailsFoldExtensio
         });
         if (foldRange) {
           view.dispatch({ effects: unfoldEffect.of(foldRange) });
+
+          // Reverse-sync: find which <details> index this range corresponds to
+          if (onEditorFoldToggle) {
+            const ranges = findDetailsRanges(view);
+            const match = ranges.find(
+              (r) => r.from === foldRange!.from && r.to === foldRange!.to,
+            );
+            if (match) {
+              onEditorFoldToggle(match.index, true); // true = now open
+            }
+          }
           return true;
         }
       }
@@ -119,7 +136,6 @@ export function createDetailsFoldExtension(cm6: CM6Modules): DetailsFoldExtensio
 
 /**
  * Map a {from, to} range through document changes.
- * Used by StateEffect to keep fold ranges valid after edits.
  */
 function mapRange(value: { from: number; to: number }, changes: any): { from: number; to: number } | undefined {
   const from = changes.mapPos(value.from, 1);
@@ -129,14 +145,11 @@ function mapRange(value: { from: number; to: number }, changes: any): { from: nu
 
 /**
  * Widget that replaces folded content with a clickable placeholder.
- * Must implement the full CM6 WidgetType interface since we can't
- * extend the actual WidgetType class (module identity issues).
+ * Implements the full CM6 WidgetType interface.
  */
 class FoldWidget {
-  // CM6 WidgetType interface methods
-
   eq(_other: FoldWidget): boolean {
-    return true; // all fold widgets are equivalent
+    return true;
   }
 
   compare(other: FoldWidget): boolean {
@@ -153,6 +166,10 @@ class FoldWidget {
 
   updateDOM(_dom: HTMLElement): boolean {
     return false;
+  }
+
+  coordsAt(): null {
+    return null;
   }
 
   get estimatedHeight(): number {
@@ -178,9 +195,9 @@ class FoldWidget {
  */
 export function findDetailsRanges(
   view: EditorViewLike,
-): Array<{ index: number; from: number; to: number; lineFrom: number }> {
+): Array<{ index: number; from: number; to: number; lineFrom: number; hasOpen: boolean }> {
   const doc = view.state.doc;
-  const ranges: Array<{ index: number; from: number; to: number; lineFrom: number }> = [];
+  const ranges: Array<{ index: number; from: number; to: number; lineFrom: number; hasOpen: boolean }> = [];
   let detailsIndex = 0;
 
   for (let i = 1; i <= doc.lines; i++) {
@@ -188,6 +205,7 @@ export function findDetailsRanges(
     const text = line.text.trimStart();
 
     if (/<details(\s[^>]*)?>/.test(text)) {
+      const hasOpen = /open/.test(text);
       let depth = 1;
       for (let j = i + 1; j <= doc.lines; j++) {
         const scanLine = doc.line(j);
@@ -198,9 +216,10 @@ export function findDetailsRanges(
         if (depth <= 0) {
           ranges.push({
             index: detailsIndex,
-            from: line.to,       // end of <details> line
-            to: scanLine.to,     // end of </details> line
-            lineFrom: line.from, // start of <details> line
+            from: line.to,
+            to: scanLine.to,
+            lineFrom: line.from,
+            hasOpen,
           });
           break;
         }
