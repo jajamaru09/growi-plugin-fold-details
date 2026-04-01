@@ -1,0 +1,19 @@
+{
+  "name": "growi-plugin-fold-details",
+  "version": "0.1.0",
+  "description": "Fold <details> blocks in GROWI's CodeMirror editor, synced with preview pane",
+  "type": "module",
+  "keywords": ["growi", "growi-plugin", "codemirror", "fold", "details"],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
+  },
+  "growiPlugin": {
+    "schemaVersion": "4",
+    "types": ["script"]
+  }
+}
