@@ -129,12 +129,18 @@ function mapRange(value: { from: number; to: number }, changes: any): { from: nu
 
 /**
  * Widget that replaces folded content with a clickable placeholder.
+ * Must implement the full CM6 WidgetType interface since we can't
+ * extend the actual WidgetType class (module identity issues).
  */
 class FoldWidget {
-  eq: () => boolean;
+  // CM6 WidgetType interface methods
 
-  constructor() {
-    this.eq = () => true;
+  eq(_other: FoldWidget): boolean {
+    return true; // all fold widgets are equivalent
+  }
+
+  compare(other: FoldWidget): boolean {
+    return this.constructor === other.constructor && this.eq(other);
   }
 
   toDOM(): HTMLElement {
@@ -145,12 +151,24 @@ class FoldWidget {
     return span;
   }
 
+  updateDOM(_dom: HTMLElement): boolean {
+    return false;
+  }
+
   get estimatedHeight(): number {
     return -1;
   }
 
+  get lineBreaks(): number {
+    return 0;
+  }
+
   ignoreEvent(): boolean {
     return false;
+  }
+
+  destroy(): void {
+    // noop
   }
 }
 
