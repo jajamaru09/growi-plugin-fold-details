@@ -75,13 +75,32 @@ export function extractCM6Modules(view: EditorViewLike): CM6Modules {
   }
 
   // --- Compartment ---
-  // state.config.compartments is a Map<Compartment, Extension[]>
-  const compartments: Map<any, any> = view.state.config.compartments;
-  const firstCompartment = compartments.keys().next().value;
-  if (!firstCompartment) {
-    throw new Error('[fold-details] No Compartment found in state config');
+  // Primary: state.config.compartments is a Map<Compartment, Extension[]>
+  // Fallback: base extensions contain CompartmentExtension objects with a `compartment` property
+  let Compartment: any = null;
+  const compartments: Map<any, any> | undefined = view.state.config.compartments;
+  if (compartments && compartments.size > 0) {
+    const firstCompartment = compartments.keys().next().value;
+    if (firstCompartment) {
+      Compartment = firstCompartment.constructor;
+    }
   }
-  const Compartment = firstCompartment.constructor;
+  if (!Compartment) {
+    // Fallback: find CompartmentExtension in base (has {compartment, inner} shape)
+    const compartmentExt = findInBaseFlat(view.state.config.base, (ext) => {
+      return ext && typeof ext === 'object'
+        && 'compartment' in ext && 'inner' in ext
+        && ext.compartment
+        && typeof ext.compartment.of === 'function'
+        && typeof ext.compartment.reconfigure === 'function';
+    });
+    if (compartmentExt) {
+      Compartment = compartmentExt.compartment.constructor;
+    }
+  }
+  if (!Compartment) {
+    throw new Error('[fold-details] Compartment class not found');
+  }
 
   // --- Decoration ---
   // Extract from existing decorations in the docView
@@ -95,10 +114,18 @@ export function extractCM6Modules(view: EditorViewLike): CM6Modules {
       }
     }
   }
-  // If no decorations exist, get it from the parent class chain
   if (!Decoration) {
-    // Fallback: search through base extensions for ViewPlugin instances
-    // that may reference Decoration
+    // Fallback: try Decoration.none which is a static property
+    // Search through all DecorationSets (even empty ones have a constructor)
+    for (const decoSet of view.docView.decorations) {
+      if (decoSet && decoSet.constructor && typeof decoSet.constructor.prototype?.iter === 'function') {
+        // This is a RangeSet/DecorationSet, not a Decoration itself
+        // We need to find the Decoration class another way
+        break;
+      }
+    }
+  }
+  if (!Decoration) {
     throw new Error('[fold-details] Decoration class not found (no existing decorations in editor)');
   }
   // Decoration static methods might be on the parent class
@@ -165,6 +192,28 @@ function findClassInBase(
     } else if (item && typeof item === 'object' && item.constructor !== Object) {
       if (predicate(item)) {
         return item.constructor;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Recursively flatten an extension array and find the first element
+ * (not constructor) matching a predicate.
+ */
+function findInBaseFlat(
+  base: any[],
+  predicate: (ext: any) => boolean,
+  depth = 10,
+): any | null {
+  for (const item of base) {
+    if (Array.isArray(item) && depth > 0) {
+      const result = findInBaseFlat(item, predicate, depth - 1);
+      if (result) return result;
+    } else if (item && typeof item === 'object') {
+      if (predicate(item)) {
+        return item;
       }
     }
   }
