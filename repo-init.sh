@@ -54,7 +54,13 @@ echo "Skills and commands updated (local only)."
 # --- Workflows (git subtree で追跡) ---
 if [ -d ".gitea/workflows" ] && git ls-files --error-unmatch ".gitea/workflows" >/dev/null 2>&1; then
   echo "Updating subtree: .gitea/workflows"
-  git subtree pull --prefix=".gitea/workflows" "$ACTIONS_REMOTE" main --squash -m "Update .gitea/workflows from $ACTIONS_REMOTE"
+  if ! git subtree pull --prefix=".gitea/workflows" "$ACTIONS_REMOTE" main --squash -m "Update .gitea/workflows from $ACTIONS_REMOTE"; then
+    echo "Subtree pull failed (conflict). Re-adding subtree..."
+    git merge --abort 2>/dev/null || true
+    git rm -r .gitea/workflows
+    git commit -m "Remove workflows subtree for re-add"
+    git subtree add --prefix=".gitea/workflows" "$ACTIONS_REMOTE" main --squash
+  fi
 else
   echo "Adding subtree: .gitea/workflows"
   git subtree add --prefix=".gitea/workflows" "$ACTIONS_REMOTE" main --squash
