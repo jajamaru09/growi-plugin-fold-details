@@ -7,8 +7,23 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 1
 fi
 
+# --- Skills dist URL の取得 ---
+SKILLS_REMOTE="skills-dist"
+SKILLS_URL=$(git remote get-url "$SKILLS_REMOTE" 2>/dev/null || true)
+if [ -z "$SKILLS_URL" ]; then
+  read -p "Skills dist URL: " SKILLS_URL
+  git remote add "$SKILLS_REMOTE" "$SKILLS_URL"
+fi
+
+# --- Actions dist URL の取得 ---
+ACTIONS_REMOTE="actions-dist"
+ACTIONS_URL=$(git remote get-url "$ACTIONS_REMOTE" 2>/dev/null || true)
+if [ -z "$ACTIONS_URL" ]; then
+  read -p "Actions dist URL: " ACTIONS_URL
+  git remote add "$ACTIONS_REMOTE" "$ACTIONS_URL"
+fi
+
 # --- Skills & Commands (ローカルのみ、git管理外) ---
-SKILLS_DIST_URL="https://REDACTED_HOST/claude-skills/claude-skills-personal-dist.git"
 TMP_DIR=$(mktemp -d)
 
 # 旧構造（subtreeで追跡されたskills）があれば解除
@@ -19,17 +34,15 @@ if git ls-files ".claude/skills" 2>/dev/null | grep -q .; then
 fi
 
 echo "Fetching skills and commands ..."
-git clone --depth 1 "$SKILLS_DIST_URL" "$TMP_DIR"
+git clone --depth 1 "$SKILLS_URL" "$TMP_DIR"
 
 mkdir -p .claude/skills .claude/commands
 
-# skills
 if [ -d "$TMP_DIR/skills" ]; then
   rm -rf .claude/skills/*
   cp -r "$TMP_DIR/skills/"* .claude/skills/
 fi
 
-# commands
 if [ -d "$TMP_DIR/commands" ]; then
   rm -rf .claude/commands/*
   cp -r "$TMP_DIR/commands/"* .claude/commands/
@@ -39,22 +52,12 @@ rm -rf "$TMP_DIR"
 echo "Skills and commands updated (local only)."
 
 # --- Workflows (git subtree で追跡) ---
-REMOTE_NAME="actions-dist"
-REMOTE_URL="https://REDACTED_HOST/mygitea-actions/actions-dist.git"
-PREFIX=".gitea/workflows"
-BRANCH="main"
-
-if ! git remote get-url "$REMOTE_NAME" >/dev/null 2>&1; then
-  echo "Adding remote: $REMOTE_NAME"
-  git remote add "$REMOTE_NAME" "$REMOTE_URL"
-fi
-
-if [ -d "$PREFIX" ] && git ls-files --error-unmatch "$PREFIX" >/dev/null 2>&1; then
-  echo "Updating subtree: $PREFIX"
-  git subtree pull --prefix="$PREFIX" "$REMOTE_NAME" "$BRANCH" --squash -m "Update $PREFIX from $REMOTE_NAME"
+if [ -d ".gitea/workflows" ] && git ls-files --error-unmatch ".gitea/workflows" >/dev/null 2>&1; then
+  echo "Updating subtree: .gitea/workflows"
+  git subtree pull --prefix=".gitea/workflows" "$ACTIONS_REMOTE" main --squash -m "Update .gitea/workflows from $ACTIONS_REMOTE"
 else
-  echo "Adding subtree: $PREFIX"
-  git subtree add --prefix="$PREFIX" "$REMOTE_NAME" "$BRANCH" --squash
+  echo "Adding subtree: .gitea/workflows"
+  git subtree add --prefix=".gitea/workflows" "$ACTIONS_REMOTE" main --squash
 fi
 
 echo "Done."
